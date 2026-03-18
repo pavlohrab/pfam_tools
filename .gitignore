@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+*.domtblout
+*.h3m
+*.h3f
+*.h3i
+*.h3p
