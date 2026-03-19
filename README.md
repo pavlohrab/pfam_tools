@@ -8,13 +8,17 @@ Python toolkit for Pfam domain annotation of prokaryotic genomes: scan proteins 
 Protein FASTAs (.faa)
         │
         ▼
-  run_hmmscan.py          scan against Pfam-A (pyhmmer)
-        │                 produces one .domtblout per .faa
-        ▼
-  pfam_scan.py            QC filter → presence/absence matrix
-        │                 rows = Pfam IDs, cols = genomes or sequences
-        ▼
-  pfam_mapping.py         annotate Pfam IDs with GO & GO-Slim
+  run_hmmscan.py                      scan against Pfam-A (pyhmmer)
+        │                             produces one .domtblout per .faa
+        ├──────────────────────────────────────────────────┐
+        ▼                                                  ▼
+  pfam_scan.py                        pfam_neighbourhood_extractor.py
+        │  QC filter → presence/          extract genomic neighbourhoods
+        │  absence matrix                 around target Pfam domains
+        ▼                                 (+ GenBank files as input)
+  pfam_mapping.py                         → neighbourhood .gbk + .faa
+        annotate Pfam IDs
+        with GO & GO-Slim
 ```
 
 ## Installation
@@ -184,13 +188,72 @@ Downloaded automatically on first run into `-d`:
 
 ---
 
+## pfam_neighbourhood_extractor.py
+
+Extract genomic neighbourhoods (N genes upstream + target + N genes downstream) around target Pfam domains. Requires `.domtblout` files (from step 1) and corresponding GenBank files.
+
+```bash
+python pfam_neighbourhood_extractor.py \
+    --domtbls hmm_results/ \
+    --genbanks genbank_files/ \
+    --pfam PF00001,PF00002 \
+    --output neighbourhoods/ \
+    --upstream 5 --downstream 5 \
+    --evalue 1e-3 --coverage 0.5 \
+    --no-overlaps \
+    --create-faa \
+    --cpu 4 -v
+```
+
+The `--pfam` argument accepts a single ID, comma-separated IDs, or a path to a file with one ID per line.
+
+| Flag | Description |
+|------|-------------|
+| `--domtbls` | Directory of `.domtblout` files |
+| `--genbanks` | Directory of GenBank files (`.gbk`, `.gbff`, `.gb`, `.genbank`) |
+| `--pfam` | Target Pfam ID(s): single, comma-separated, or file |
+| `--output` | Output directory (default: `neighbourhoods`) |
+| `--domtbl-ext` | Domtblout file extension (default: `.domtblout`) |
+| `--upstream` | Genes upstream of target to include (default: 5) |
+| `--downstream` | Genes downstream of target to include (default: 5) |
+| `--mode` | `hmmscan` or `hmmsearch` (default: `hmmscan`) |
+| `--evalue` | Max E-value threshold (default: 1e-3) |
+| `--coverage` | Min HMM coverage (default: 0.5) |
+| `--no-overlaps` | Apply Pfam-style overlap resolution |
+| `--min-genes` | Min genes required per neighbourhood (default: 0) |
+| `--use-ga` | Use GA thresholds (requires `--ga-file`) |
+| `--ga-file` | Path to Pfam-A.hmm for GA thresholds |
+| `--create-faa` | Write `.faa` protein FASTA per Pfam domain |
+| `--cpu` | Parallel workers (default: 1) |
+
+### Outputs
+
+```
+neighbourhoods/
+├── PF00001/
+│   ├── genomeA_PF00001_locusX_neighbourhood.gbk
+│   └── genomeB_PF00001_locusY_neighbourhood.gbk
+├── PF00002/
+│   └── ...
+└── faa_files/          (with --create-faa)
+    ├── PF00001.faa
+    └── PF00002.faa
+```
+
+Each neighbourhood `.gbk` file contains the target gene and its flanking genes with adjusted coordinates. The target gene is annotated with a `TARGET: Contains PFxxxxx domain` note; flanking genes are annotated with their relative position.
+
+The `.faa` files contain deduplicated protein sequences for all genes found in neighbourhoods of each Pfam domain.
+
+---
+
 ## Repository structure
 
 ```
 pfam-tools/
-├── run_hmmscan.py      # step 1: HMMER scanning
-├── pfam_scan.py        # step 2: QC filtering & matrix
-├── pfam_mapping.py     # step 3: GO / GO-Slim annotation
+├── run_hmmscan.py                    # step 1: HMMER scanning
+├── pfam_scan.py                      # step 2: QC filtering & matrix
+├── pfam_mapping.py                   # step 3: GO / GO-Slim annotation
+├── pfam_neighbourhood_extractor.py   # neighbourhood extraction
 ├── requirements.txt
 └── .gitignore
 ```
@@ -202,5 +265,6 @@ pfam-tools/
 - **goatools** — GO parsing and slim mapping
 - **pfam2go** — Pfam-to-GO mappings
 - **matplotlib** — plots
+- **biopython** ≥ 1.81 — GenBank parsing (neighbourhood extraction)
 - **requests**, **tqdm** — downloads and progress bars
 

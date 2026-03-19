@@ -11,3 +11,6 @@ matplotlib>=3.7.0
 requests>=2.31.0
 goatools>=1.3.1
 pfam2go
+
+# Neighbourhood extraction (pfam_neighbourhood_extractor.py)
+biopython>=1.81
