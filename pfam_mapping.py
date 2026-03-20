@@ -304,7 +304,11 @@ def process_feature_set(pfams: List[str], outdir: pathlib.Path, desc_map: Dict[s
     )
 
     out1 = outdir / "pfam_go_annotation.tsv"
-    df[[pfcol, "pfam_desc", gocol, "go_name", "go_slim_name"]].to_csv(out1, sep="\t", index=False)
+    out_cols = [pfcol, "pfam_desc", gocol, "go_name", "go_slim_name"]
+    if pfam_counts is not None:
+        df["count"] = df[pfcol].map(pfam_counts).fillna(0).astype(int)
+        out_cols.insert(2, "count")
+    df[out_cols].to_csv(out1, sep="\t", index=False)
     print(f"Annotation table (with GO) → {out1}")
 
     df_long = (
