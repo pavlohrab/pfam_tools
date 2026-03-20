@@ -76,7 +76,8 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument("-i", "--input", default="pfams.txt",
-                    help="Plain-text file with Pfam IDs (one per line or free-text)")
+                    help="Pfam IDs: plain-text list OR pfam_presence matrix TSV "
+                         "from pfam_scan.py (auto-detected; adds count column)")
     ap.add_argument("-o", "--outdir", default=".",
                     help="Output directory")
     ap.add_argument("-d", "--database", default=".",
@@ -153,6 +154,40 @@ def slim_id_list(go_id: str, full: GODag, slim: GODag) -> List[str]:
     return sorted(set(flatten_any(raw)))
 
 
+def _load_input(path: str):
+    """
+    Auto-detect input format: pfam_presence matrix (TSV) or plain Pfam list.
+
+    Returns:
+        (pfams, pfam_counts) where pfam_counts is a dict {PFxxxxx: int} or None.
+    """
+    inp = pathlib.Path(path)
+    raw = inp.read_text()
+
+    # Try to detect pfam_presence matrix: TSV with Pfam IDs as row index
+    # and numeric columns.  The first row is a header, subsequent rows start
+    # with a Pfam accession.
+    lines = [l for l in raw.splitlines() if l.strip()]
+    if len(lines) >= 2 and "\t" in lines[0]:
+        # Check if non-header rows start with Pfam IDs
+        data_lines = lines[1:]
+        first_cols = [l.split("\t", 1)[0] for l in data_lines[:10]]
+        pfam_like = sum(1 for c in first_cols if re.match(r"PF\d{5}", c, re.I))
+        if pfam_like >= len(first_cols) * 0.8:
+            print(f"Detected pfam_presence matrix in {inp.name}")
+            df = pd.read_csv(inp, sep="\t", index_col=0)
+            pfam_counts = df.sum(axis=1).astype(int).to_dict()
+            pfams = sorted(df.index.tolist())
+            print(f"  {len(pfams)} Pfam families, "
+                  f"{df.shape[1]} samples, "
+                  f"total count {sum(pfam_counts.values()):,}")
+            return pfams, pfam_counts
+
+    # Fallback: plain text with Pfam IDs
+    pfams = sorted(set(re.findall(r"(?:PFAM_)?(PF\d{5})", raw, flags=re.I)))
+    return pfams, None
+
+
 def load_feature_sets(path: str) -> Dict[str, List[str]]:
     df = pd.read_csv(path, sep="\t")
     result: Dict[str, List[str]] = {}
@@ -223,7 +258,8 @@ def generate_universality_analysis(base_dir: pathlib.Path) -> None:
 
 
 def process_feature_set(pfams: List[str], outdir: pathlib.Path, desc_map: Dict[str, str],
-                        godag_full: GODag, godag_slim: GODag) -> None:
+                        godag_full: GODag, godag_slim: GODag,
+                        pfam_counts: Dict[str, int] | None = None) -> None:
     if not pfams:
         print("No Pfam IDs found in feature set.")
         return
@@ -237,9 +273,13 @@ def process_feature_set(pfams: List[str], outdir: pathlib.Path, desc_map: Dict[s
         for pf in tqdm(missing):
             pf_desc[pf] = pfam_desc_api(pf)
 
-    pd.DataFrame(
-        [{"pfam_id": pf, "pfam_desc": d} for pf, d in pf_desc.items()]
-    ).to_csv(outdir / "pfam_descriptions_only.tsv", sep="\t", index=False)
+    rows = []
+    for pf in pfams:
+        row = {"pfam_id": pf, "pfam_desc": pf_desc[pf]}
+        if pfam_counts is not None:
+            row["count"] = pfam_counts.get(pf, 0)
+        rows.append(row)
+    pd.DataFrame(rows).to_csv(outdir / "pfam_descriptions_only.tsv", sep="\t", index=False)
     print(f"Pfam descriptions (all) → {outdir / 'pfam_descriptions_only.tsv'}")
 
     df = pfam2go(pfams)
@@ -353,12 +393,12 @@ def main():
         print(f"\n=== Generating universality analysis ===")
         generate_universality_analysis(outdir)
     else:
-        raw = pathlib.Path(args.input).read_text()
-        pfams = sorted(set(re.findall(r"(?:PFAM_)?(PF\d{5})", raw, flags=re.I)))
+        pfams, pfam_counts = _load_input(args.input)
         if not pfams:
             raise SystemExit("No Pfam IDs found.")
         print(f"{len(pfams)} Pfams to process")
-        process_feature_set(pfams, outdir, desc_map, godag_full, godag_slim)
+        process_feature_set(pfams, outdir, desc_map, godag_full, godag_slim,
+                            pfam_counts=pfam_counts)
 
 
 if __name__ == "__main__":

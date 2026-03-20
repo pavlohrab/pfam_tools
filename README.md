@@ -44,16 +44,14 @@ python pfam_scan.py \
     --evalue 1e-3 --cov 0.5 \
     --resolve-overlaps --cpu 4
 
-# 3. annotate
-tail -n+2 pfam_matrix.tsv | cut -f1 > pfams.txt
+# 3. annotate (pass the matrix directly — no need to extract IDs)
 python pfam_mapping.py \
-    -i pfams.txt \
+    -i pfam_matrix.tsv \
     -o annotation_results/ \
     -d db/
 ```
 
-Step 2 outputs a matrix with Pfam IDs as the row index.
-Step 3 expects a plain-text file with Pfam IDs — extract them with `tail | cut` as shown above.
+Step 3 auto-detects whether `-i` is a pfam_presence matrix or a plain Pfam list. When given a matrix, it also adds a `count` column to the descriptions output.
 
 ---
 
@@ -129,10 +127,14 @@ Map Pfam IDs to GO terms and GO-Slim functional categories.
 
 ### Single Pfam list
 
-Input: a plain-text file containing Pfam IDs (e.g. `PF00001`, one per line or mixed in free text).
+Input: a plain-text file with Pfam IDs, **or** a `pfam_presence` matrix TSV from `pfam_scan.py` (auto-detected). When given a matrix, a `count` column (sum across samples) is added to `pfam_descriptions_only.tsv`.
 
 ```bash
+# plain list
 python pfam_mapping.py -i pfams.txt -o results/ -d db/
+
+# or pass the matrix directly
+python pfam_mapping.py -i pfam_matrix.tsv -o results/ -d db/
 ```
 
 ### Multiple feature sets
@@ -151,7 +153,7 @@ python pfam_mapping.py --feature-sets sets.tsv -o results/ -d db/
 
 | Flag | Description |
 |------|-------------|
-| `-i` | Plain-text Pfam ID file (default: `pfams.txt`) |
+| `-i` | Pfam ID file: plain-text list or pfam_presence matrix TSV (auto-detected) |
 | `-o` | Output directory (default: `.`) |
 | `-d` | Cache directory for database files (default: `.`) |
 | `--pfam-tsv` | Path to `Pfam-A.clans.tsv.gz` (auto-downloaded if absent) |
@@ -173,7 +175,7 @@ Downloaded automatically on first run into `-d`:
 
 | File | Content |
 |------|---------|
-| `pfam_descriptions_only.tsv` | All Pfam IDs with descriptions |
+| `pfam_descriptions_only.tsv` | All Pfam IDs with descriptions (+ `count` column when input is a matrix) |
 | `pfam_go_annotation.tsv` | Pfam → GO → GO-Slim mappings |
 | `pfam_goslim_summary.tsv` | Domain counts per GO-Slim category |
 | `pfam_goslim_explanation.txt` | GO-Slim definitions |
