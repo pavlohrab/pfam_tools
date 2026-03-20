@@ -25,6 +25,7 @@ import time
 import urllib.request
 from typing import Dict, List
 from collections import defaultdict
+import numpy as np
 
 import pandas as pd
 import matplotlib
@@ -162,28 +163,37 @@ def _load_input(path: str):
         (pfams, pfam_counts) where pfam_counts is a dict {PFxxxxx: int} or None.
     """
     inp = pathlib.Path(path)
-    raw = inp.read_text()
 
-    # Try to detect pfam_presence matrix: TSV with Pfam IDs as row index
-    # and numeric columns.  The first row is a header, subsequent rows start
-    # with a Pfam accession.
-    lines = [l for l in raw.splitlines() if l.strip()]
-    if len(lines) >= 2 and "\t" in lines[0]:
-        # Check if non-header rows start with Pfam IDs
-        data_lines = lines[1:]
-        first_cols = [l.split("\t", 1)[0] for l in data_lines[:10]]
+    # Peek at the first few lines to detect format (avoid reading entire file)
+    with open(inp) as fh:
+        head = [fh.readline() for _ in range(12)]
+    head = [l for l in head if l.strip()]
+
+    if len(head) >= 2 and "\t" in head[0]:
+        first_cols = [l.split("\t", 1)[0] for l in head[1:]]
         pfam_like = sum(1 for c in first_cols if re.match(r"PF\d{5}", c, re.I))
         if pfam_like >= len(first_cols) * 0.8:
             print(f"Detected pfam_presence matrix in {inp.name}")
-            df = pd.read_csv(inp, sep="\t", index_col=0)
-            pfam_counts = df.sum(axis=1).astype(int).to_dict()
-            pfams = sorted(df.index.tolist())
+            # Read index column, then load numeric data with numpy
+            pfam_ids = []
+            with open(inp) as fh:
+                header = fh.readline()
+                n_samples = header.count("\t")
+                for line in fh:
+                    pfam_ids.append(line.split("\t", 1)[0])
+            ncols = list(range(1, n_samples + 1))
+            mat = np.loadtxt(inp, delimiter="\t", skiprows=1,
+                             usecols=ncols, dtype=np.int8)
+            row_sums = mat.sum(axis=1)
+            pfam_counts = dict(zip(pfam_ids, row_sums.tolist()))
+            pfams = sorted(pfam_counts.keys())
             print(f"  {len(pfams)} Pfam families, "
-                  f"{df.shape[1]} samples, "
+                  f"{n_samples} samples, "
                   f"total count {sum(pfam_counts.values()):,}")
             return pfams, pfam_counts
 
     # Fallback: plain text with Pfam IDs
+    raw = inp.read_text()
     pfams = sorted(set(re.findall(r"(?:PFAM_)?(PF\d{5})", raw, flags=re.I)))
     return pfams, None
 
